@@ -39,7 +39,7 @@ def load_latest_model():
 def main():
     # 1) Читаем порог из config.json
     cfg = json.load(open("config.json", "r"))
-    thr = cfg.get("filter_threshold", 0.5)
+    thr = cfg.get("filter_threshold", 0.6)
 
     # 2) Загружаем модель и фичи из папки models/
     model, features = load_latest_model()
