@@ -357,7 +357,6 @@ def find_significant_levels(df, current_price, position_type, current_atr):
     filtered_sl_levels = [l for l in sl_levels if (position_type == "LONG" and l < current_price - current_atr * LEVEL_PROXIMITY_ATR_MULTIPLIER) or (position_type == "SHORT" and l > current_price + current_atr * LEVEL_PROXIMITY_ATR_MULTIPLIER)][:1]
     
     return filtered_sl_levels, filtered_tp_levels
-
 def calculate_dynamic_sl_tp(entry_price, df, position_type, symbol, signal_type="GENERIC"):
     """
     Рассчитывает динамический стоп-лосс и тейк-профиты с гарантированным минимальным расстоянием 
