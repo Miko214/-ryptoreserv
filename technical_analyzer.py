@@ -124,6 +124,7 @@ MIN_SL_PERCENTAGE_OF_ENTRY = 0.005
 MIN_TP_PERCENTAGE_OF_ENTRY = 0.0075
 MIN_RR_RATIO_TP1 = 1.0
 MIN_SL_ATR_MULTIPLIER_FLOOR = 1.5
+MIN_TP_STEP_PERCENTAGE = 0.005
 
 # --- Имена колонок для индикаторов ---
 MACD_SUFFIX = f'_{MACD_FAST_LENGTH}_{MACD_SLOW_LENGTH}_{MACD_SIGNAL_LENGTH}'
@@ -357,9 +358,11 @@ def find_significant_levels(df, current_price, position_type, current_atr):
     
     return filtered_sl_levels, filtered_tp_levels
 
-
 def calculate_dynamic_sl_tp(entry_price, df, position_type, symbol, signal_type="GENERIC"):
-    """Рассчитывает динамический стоп-лосс и тейк-профиты с гарантированным минимальным расстоянием и правильной последовательностью TP."""
+    """
+    Рассчитывает динамический стоп-лосс и тейк-профиты с гарантированным минимальным расстоянием 
+    и правильной последовательностью TP, используя процентный шаг для дешевых активов.
+    """
     last_candle = df.iloc[-1]
     current_atr = last_candle.get(f'ATR_{ATR_LENGTH}', np.nan)
     if pd.isna(current_atr) or not np.isfinite(current_atr) or current_atr <= 1e-10:
@@ -372,18 +375,23 @@ def calculate_dynamic_sl_tp(entry_price, df, position_type, symbol, signal_type=
 
     # --- 1. Расчет SL по основной логике ---
     if position_type == "LONG":
-        if "HAMMER" in signal_type and last_candle['low'] < entry_price: sl_price = last_candle['low']
-        elif "ENGULFING" in signal_type and df.iloc[-2]['low'] < entry_price: sl_price = df.iloc[-2]['low']
+        if "HAMMER" in signal_type and last_candle['low'] < entry_price:
+            sl_price = last_candle['low']
+        elif "ENGULFING" in signal_type and df.iloc[-2]['low'] < entry_price:
+            sl_price = df.iloc[-2]['low']
         elif potential_sl_levels:
             sl_candidate = potential_sl_levels[0]
             sl_price = sl_candidate if sl_candidate < entry_price - (current_atr * 0.1) else entry_price - (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
-        else: sl_price = entry_price - (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
+        else:
+            sl_price = entry_price - (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
     elif position_type == "SHORT":
-        if "ENGULFING" in signal_type and df.iloc[-2]['high'] > entry_price: sl_price = df.iloc[-2]['high']
+        if "ENGULFING" in signal_type and df.iloc[-2]['high'] > entry_price:
+            sl_price = df.iloc[-2]['high']
         elif potential_sl_levels:
             sl_candidate = potential_sl_levels[0]
             sl_price = sl_candidate if sl_candidate > entry_price + (current_atr * 0.1) else entry_price + (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
-        else: sl_price = entry_price + (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
+        else:
+            sl_price = entry_price + (current_atr * MIN_SL_ATR_MULTIPLIER_IF_NO_LEVELS)
 
     # --- 2. Гарантируем минимальное расстояние для SL ---
     min_sl_dist_percent = entry_price * MIN_SL_PERCENTAGE_OF_ENTRY
@@ -405,38 +413,42 @@ def calculate_dynamic_sl_tp(entry_price, df, position_type, symbol, signal_type=
     
     # --- 4. Корректировка TP1 для R:R ---
     risk_distance = abs(entry_price - sl_price)
-    # Используем get() для безопасного доступа и присваиваем entry_price если TP1 еще не назначен
     reward_distance_tp1 = abs(tp_prices.get('TP1', entry_price) - entry_price) if tp_prices.get('TP1') else 0
     if risk_distance > 1e-10 and reward_distance_tp1 < risk_distance * MIN_RR_RATIO_TP1:
         logger.warning(f"[{symbol}] TP1 скорректирован для соблюдения R:R > {MIN_RR_RATIO_TP1}")
         if position_type == "LONG":
             tp_prices['TP1'] = entry_price + (risk_distance * MIN_RR_RATIO_TP1)
-        else: # SHORT
+        else:
             tp_prices['TP1'] = entry_price - (risk_distance * MIN_RR_RATIO_TP1)
+            
+    # --- 5. Каскадный пересчет TP с использованием процентного шага ---
+    atr_based_step = current_atr * (MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS / 2)
+    percent_based_step = entry_price * MIN_TP_STEP_PERCENTAGE
     
-    # --- 5. НОВАЯ ЛОГИКА: Каскадный пересчет TP2 и TP3 для сохранения последовательности ---
-    base_tp_step = current_atr * (MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS / 2)
+    final_tp_step = max(atr_based_step, percent_based_step)
+    logger.info(f"[{symbol}] Шаг для TP определен как {final_tp_step:.8f} (ATR_step: {atr_based_step:.8f}, Percent_step: {percent_based_step:.8f})")
+
     if position_type == "LONG":
-        # Устанавливаем TP1, если он до сих пор не назначен
         if not tp_prices.get('TP1'):
-            tp_prices['TP1'] = entry_price + (current_atr * MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS)
-        # Проверяем и корректируем TP2
-        if not tp_prices.get('TP2') or tp_prices.get('TP2') < tp_prices.get('TP1'):
-            tp_prices['TP2'] = tp_prices.get('TP1') + base_tp_step
-        # Проверяем и корректируем TP3
-        if not tp_prices.get('TP3') or tp_prices.get('TP3') < tp_prices.get('TP2'):
-            tp_prices['TP3'] = tp_prices.get('TP2') + base_tp_step
+            min_tp1_price = entry_price + (entry_price * MIN_TP_PERCENTAGE_OF_ENTRY)
+            tp_prices['TP1'] = max(min_tp1_price, entry_price + (current_atr * MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS))
+        
+        if not tp_prices.get('TP2') or tp_prices.get('TP2') <= tp_prices.get('TP1'):
+            tp_prices['TP2'] = tp_prices.get('TP1') + final_tp_step
+        
+        if not tp_prices.get('TP3') or tp_prices.get('TP3') <= tp_prices.get('TP2'):
+            tp_prices['TP3'] = tp_prices.get('TP2') + final_tp_step
     
     elif position_type == "SHORT":
-        # Устанавливаем TP1, если он до сих пор не назначен
         if not tp_prices.get('TP1'):
-            tp_prices['TP1'] = entry_price - (current_atr * MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS)
-        # Проверяем и корректируем TP2
-        if not tp_prices.get('TP2') or tp_prices.get('TP2') > tp_prices.get('TP1'):
-            tp_prices['TP2'] = tp_prices.get('TP1') - base_tp_step
-        # Проверяем и корректируем TP3
-        if not tp_prices.get('TP3') or tp_prices.get('TP3') > tp_prices.get('TP2'):
-            tp_prices['TP3'] = tp_prices.get('TP2') - base_tp_step
+            min_tp1_price = entry_price - (entry_price * MIN_TP_PERCENTAGE_OF_ENTRY)
+            tp_prices['TP1'] = min(min_tp1_price, entry_price - (current_atr * MIN_PROFIT_ATR_MULTIPLIER_IF_NO_LEVELS))
+
+        if not tp_prices.get('TP2') or tp_prices.get('TP2') >= tp_prices.get('TP1'):
+            tp_prices['TP2'] = tp_prices.get('TP1') - final_tp_step
+        
+        if not tp_prices.get('TP3') or tp_prices.get('TP3') >= tp_prices.get('TP2'):
+            tp_prices['TP3'] = tp_prices.get('TP2') - final_tp_step
 
     return sl_price, tp_prices
 
