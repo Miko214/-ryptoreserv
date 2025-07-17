@@ -8,14 +8,10 @@ def main():
     # 1) Загрузим размеченные сделки от бота
     labels_bot = pd.read_csv('labeled_trades.csv', dtype={'symbol': str})
     labels_bot['entry_time'] = pd.to_datetime(
-        labels_bot['entry_time'],
-        format='%Y-%m-%d %H:%M:%S,%f',
-        exact=False
-    )
+    labels_bot['entry_time']
+)
     labels_bot['exit_time'] = pd.to_datetime(
-        labels_bot['exit_time'],
-        format='%Y-%m-%d %H:%M:%S,%f',
-        exact=False
+    labels_bot['exit_time'],
     )
     labels_bot['source'] = 'bot' # Добавляем столбец для отслеживания источника
 
@@ -67,7 +63,6 @@ def main():
     except ValueError:
         hist['timestamp'] = pd.to_datetime(
             hist['timestamp'],
-            infer_datetime_format=True
         )
 
     # 4) Сортируем по символу и времени (снова, после возможного объединения)
