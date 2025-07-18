@@ -604,15 +604,7 @@ def analyze_data(symbol, df):
         if check_engulfing_candlestick(df, is_bullish=False):
             short_score += 2
             short_signal_reasons.append("Паттерн: Медвежье поглощение")
-            signal_type_short += "_ENGULFING"
-            
-    if long_score >= MIN_SIGNAL_STRENGTH:
-        # <<< ДОБАВЬТЕ ЭТОТ КОД ДЛЯ ОТЛАДКИ >>>
-        if symbol == "BTC/USDT":
-            logger.info(f"--- DEBUGGING BTC/USDT FEATURES ---")
-            # Преобразуем словарь в pandas Series для красивого вывода
-            print(pd.Series(last_candle.to_dict()))
-            logger.info(f"------------------------------------")        
+            signal_type_short += "_ENGULFING"    
 
     # --- Открытие сделки ---
     if long_score >= MIN_SIGNAL_STRENGTH:
