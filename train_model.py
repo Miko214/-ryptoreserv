@@ -1,4 +1,3 @@
-
 import os
 import warnings
 import logging
@@ -12,14 +11,10 @@ import seaborn as sns
 
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import VarianceThreshold
-from sklearn.metrics import (
-    classification_report,
-    roc_auc_score,
-    roc_curve
-)
-from sklearn.utils import resample
+from sklearn.metrics import classification_report, roc_auc_score, roc_curve
+from imblearn.over_sampling import SMOTE  # Импорт SMOTE
 
-# 0) Подавляем LightGBM-warnings и все Deprecation/UserWarnings
+# Подавляем предупреждения и настраиваем логирование
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 logging.getLogger("lightgbm").setLevel(logging.ERROR)
@@ -38,25 +33,21 @@ def main():
     y = X.pop("label")
     print(f"Rows: before dropna = {before}, after = {len(X)}")
 
-    # 3) Если одного из классов <2 — делаем простой oversample
+    # 3) Если одного из классов <10 — делаем SMOTE
     counts = y.value_counts()
-    if counts.min() < 2:
-        print("⚠️ Слишком мало примеров — делаем oversample")
-        df2 = pd.concat([X, y], axis=1)
-        df_min = df2[df2.label == counts.idxmin()]
-        df_maj = df2[df2.label == counts.idxmax()]
-        df_min_up = resample(
-            df_min,
-            replace=True,
-            n_samples=max(len(df_maj), 2),
-            random_state=42
-        )
-        df_bal = pd.concat([df_maj, df_min_up]).sample(frac=1, random_state=42)
-        y = df_bal["label"]
-        X = df_bal.drop("label", axis=1)
-        print("After oversample:", y.value_counts().to_dict())
+    if counts.min() < 10:
+        print("⚠️ Слишком мало примеров — делаем SMOTE")
+        # Проверяем, достаточно ли соседей для SMOTE
+        k_neighbors = min(counts.min(), 5)  # Не больше, чем число примеров меньшинства
+        smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+        try:
+            X, y = smote.fit_resample(X, y)
+            print("After SMOTE:", y.value_counts().to_dict())
+        except ValueError as e:
+            print(f"❗ Ошибка SMOTE: {e}. Пропускаем oversampling.")
+            # Можно добавить альтернативную логику, например, пропустить oversampling или использовать resample
 
-     # 4) train/test split (стратификация, если возможно)
+    # 4) train/test split (стратификация, если возможно)
     strat = y if y.value_counts().min() >= 2 else None
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
@@ -66,9 +57,9 @@ def main():
         random_state=42
     )
 
-    # 5) Убираем константные признаки (только если есть ≥2 образца)
+    # 5) Убираем константные признаки
     if X_train.shape[0] > 1:
-        sel = VarianceThreshold(threshold=0.0)
+        sel = VarianceThreshold(threshold=0.01)
         sel.fit(X_train)
         keep_idx = sel.get_support(indices=True)
         feature_cols = [feature_cols[i] for i in keep_idx]
@@ -80,7 +71,7 @@ def main():
     else:
         print("❗ Only one train sample — пропускаем VarianceThreshold")
 
-    # 6) Инициализируем модель с молчаливым режимом
+    # 6) Инициализируем модель
     model = lgb.LGBMClassifier(
         objective="binary",
         metric="binary_logloss",
@@ -90,10 +81,10 @@ def main():
         min_child_samples=1,
         min_data_in_bin=1,
         class_weight="balanced",
-        verbosity=-1  # отключаем логи LightGBM
+        verbosity=-1
     )
 
-    # 7) Обучаем без лишних логов
+    # 7) Обучаем
     model.fit(
         X_train,
         y_train,
@@ -113,27 +104,16 @@ def main():
     if len(set(y_test)) > 1:
         auc = roc_auc_score(y_test, y_prob)
         fpr, tpr, thr = roc_curve(y_test, y_prob)
-
-        # убираем точку с порогом = inf
-        fpr, tpr, thr = fpr[1:], tpr[1:], thr[1:]
-
-        # считаем Youden J = TPR - FPR
+        fpr, tpr, thr = fpr[1:], tpr[1:], thr[1:]  # убираем inf
         youden = tpr - fpr
         best_idx = youden.argmax()
         best_thr = thr[best_idx]
-
         print(f"ROC AUC: {auc:.4f}, Optimal threshold by Youden: {best_thr:.4f}")
 
         plt.figure(figsize=(6,4))
         sns.lineplot(x=fpr, y=tpr, label="ROC Curve")
         plt.plot([0,1], [0,1], "--", color="gray")
-        # здесь используем best_idx, а не undefined best
-        plt.scatter(
-            fpr[best_idx],
-            tpr[best_idx],
-            color="red",
-            label=f"Best thr = {best_thr:.2f}"
-        )
+        plt.scatter(fpr[best_idx], tpr[best_idx], color="red", label=f"Best thr = {best_thr:.2f}")
         plt.xlabel("FPR")
         plt.ylabel("TPR")
         plt.title(f"ROC AUC: {auc:.4f}")

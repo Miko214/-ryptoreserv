@@ -605,6 +605,14 @@ def analyze_data(symbol, df):
             short_score += 2
             short_signal_reasons.append("Паттерн: Медвежье поглощение")
             signal_type_short += "_ENGULFING"
+            
+    if long_score >= MIN_SIGNAL_STRENGTH:
+        # <<< ДОБАВЬТЕ ЭТОТ КОД ДЛЯ ОТЛАДКИ >>>
+        if symbol == "BTC/USDT":
+            logger.info(f"--- DEBUGGING BTC/USDT FEATURES ---")
+            # Преобразуем словарь в pandas Series для красивого вывода
+            print(pd.Series(last_candle.to_dict()))
+            logger.info(f"------------------------------------")        
 
     # --- Открытие сделки ---
     if long_score >= MIN_SIGNAL_STRENGTH:
