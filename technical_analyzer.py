@@ -604,8 +604,8 @@ def analyze_data(symbol, df):
         if check_engulfing_candlestick(df, is_bullish=False):
             short_score += 2
             short_signal_reasons.append("Паттерн: Медвежье поглощение")
-            signal_type_short += "_ENGULFING"    
-
+            signal_type_short += "_ENGULFING"
+            
     # --- Открытие сделки ---
     if long_score >= MIN_SIGNAL_STRENGTH:
         # ▶ ML-фильтр
