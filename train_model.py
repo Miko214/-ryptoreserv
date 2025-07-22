@@ -76,8 +76,8 @@ def main():
         metric="binary_logloss",
         n_estimators=500,
         learning_rate=0.05,
-        num_leaves=7,
-        min_child_samples=1,
+        num_leaves=25,
+        min_child_samples=10,
         min_data_in_bin=1,
         class_weight="balanced",
         verbosity=-1
